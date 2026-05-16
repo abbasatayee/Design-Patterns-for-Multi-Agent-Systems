@@ -1,0 +1,4 @@
+langchain>=1.0
+langchain-ollama
+langgraph
+python-dotenv
