@@ -1,4 +1,4 @@
-"""Router pattern: classify → parallel specialist agents → synthesize."""
+"""Multi-agent patterns: router (classify → parallel → synthesize) and orchestrator (supervisor)."""
 
 import json
 import operator
@@ -7,6 +7,7 @@ from typing import Annotated, Literal, TypedDict
 
 from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
+from langchain.tools import tool
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 from pydantic import BaseModel, Field
@@ -50,6 +51,17 @@ SYNTHESIZER_PROMPT = """Synthesize specialist results into one clear answer for 
 - Combine sources without repeating yourself
 - Keep numbers and facts from the specialists
 - Be friendly and concise"""
+
+ORCHESTRATOR_PROMPT = """You are the orchestrator — you do NOT call APIs yourself.
+
+Delegate to specialist tools:
+- geo_specialist → weather, timezones, ISS location, country facts
+- knowledge_specialist → Wikipedia, dictionary, trivia facts
+- finance_specialist → crypto prices, currency conversion
+- fun_specialist → jokes, activities, NASA photos, dice, passwords, date countdowns
+
+Call one or more specialists as needed, then synthesize one clear, friendly answer.
+Do not invent data — use specialist results only."""
 
 
 class AgentInput(TypedDict):
@@ -241,3 +253,46 @@ def build_router(model: str):
         .compile()
     )
     return workflow
+
+
+def build_orchestrator(model: str):
+    """Supervisor pattern: orchestrator delegates to specialists via tools."""
+    specialists = _build_specialists(model)
+
+    @tool("geo_specialist")
+    def geo_specialist(task: str) -> str:
+        """Delegate weather, world clocks, ISS location, or country facts."""
+        return _extract_reply(
+            specialists["geo"].invoke({"messages": [{"role": "user", "content": task}]})
+        )
+
+    @tool("knowledge_specialist")
+    def knowledge_specialist(task: str) -> str:
+        """Delegate Wikipedia lookups, word definitions, or random facts."""
+        return _extract_reply(
+            specialists["knowledge"].invoke(
+                {"messages": [{"role": "user", "content": task}]}
+            )
+        )
+
+    @tool("finance_specialist")
+    def finance_specialist(task: str) -> str:
+        """Delegate cryptocurrency prices or currency conversion."""
+        return _extract_reply(
+            specialists["finance"].invoke(
+                {"messages": [{"role": "user", "content": task}]}
+            )
+        )
+
+    @tool("fun_specialist")
+    def fun_specialist(task: str) -> str:
+        """Delegate jokes, activity ideas, NASA photos, dice, passwords, or date countdowns."""
+        return _extract_reply(
+            specialists["fun"].invoke({"messages": [{"role": "user", "content": task}]})
+        )
+
+    return create_agent(
+        model=model,
+        tools=[geo_specialist, knowledge_specialist, finance_specialist, fun_specialist],
+        system_prompt=ORCHESTRATOR_PROMPT,
+    )
